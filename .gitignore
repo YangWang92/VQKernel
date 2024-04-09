@@ -1,0 +1,4 @@
+kernel/build
+kernel/VQKernel.egg-info
+kernel/*.so
+test/tmp
