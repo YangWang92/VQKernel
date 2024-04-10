@@ -188,6 +188,7 @@ void __global__ vq_gemv_kernel(
     // Load weight and dequant first, since all input vector use this weight
     for (int begin_row = 0; begin_row < HIDDEN_DIM; begin_row += ROWS_BLOCK_DO_AT_ONCE) {
         
+        // TODO: Optimize: can double buffer here.
         #pragma unroll
         for (int tid = threadIdx.x; tid < ROWS_BLOCK_DO_AT_ONCE; tid += BLOCK_SIZE) {
             if (tid < HIDDEN_DIM) {
@@ -268,6 +269,8 @@ void __global__ vq_gemv_kernel(
         //     }
         // }
         for (int b = 0; b < BATCH_SIZE; b++) {
+
+            // TODO: Optimize: __hadd2, __hmul2
             for (int d = 0; d < COMPRESSED_DIMS_PER_BLOCK * _compression_ratio; d++) {
                 INPUT_TYPE reduce[(ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE];
                 for (int tid = threadIdx.x; tid < ROWS_BLOCK_DO_AT_ONCE; tid += BLOCK_SIZE) {
@@ -309,6 +312,7 @@ void __global__ vq_gemv_kernel(
                     }
                 }
                 if (threadIdx.x == 0) {
+                    // If residual == 1, no atomic needed.
                     // __hadd(_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d], reduce[0]);
                     atomicAdd(&_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d], reduce[0]);
                 }
