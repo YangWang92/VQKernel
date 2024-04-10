@@ -43,7 +43,7 @@ void checkLast(const char* const file, const int line)
 
 // Every block conduct 4 supspaces from one residual
 #define _COMPRESSED_DIMS_PER_BLOCK 4
-#define _ROWS_BLOCK_DO_AT_ONCE 1024
+#define _ROWS_BLOCK_DO_AT_ONCE 512
 
 #define TRUE 1
 #define FALSE 0
@@ -69,6 +69,16 @@ struct packed_vec<half, 4> {
 template <>
 struct packed_vec<half, 2> {
     using Type = uint32_t;
+};
+
+template <>
+struct packed_vec<uint8_t, 1> {
+    using Type = uint8_t;
+};
+
+template <>
+struct packed_vec<uint8_t, 2> {
+    using Type = uint16_t;
 };
 
 template <>
@@ -263,11 +273,14 @@ void __global__ vq_gemv_kernel(
                 for (int tid = threadIdx.x; tid < ROWS_BLOCK_DO_AT_ONCE; tid += BLOCK_SIZE) {
                     if (tid < HIDDEN_DIM) {
                         reduce[tid / BLOCK_SIZE] = __hmul(h_reg[tid / BLOCK_SIZE][b], w_dequant[tid / BLOCK_SIZE][d]);
+                        // if (blockIdx.x == 0 && b == 0 && d == 0) {
+                        //     printf("%d : % 5.3f * %5.3f = % 5.3f\n", threadIdx.x, __half2float(h_reg[tid / BLOCK_SIZE][b]), __half2float(w_dequant[tid / BLOCK_SIZE][d]), __half2float(reduce[tid / BLOCK_SIZE]));
+                        // }
                     }
                 }
-                for (int i = 1; i < (ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE; i++) {
-                    reduce[0] = __hadd(reduce[0], reduce[i]);
-                }
+                // for (int i = 1; i < (ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE; i++) {
+                //     reduce[0] = __hadd(reduce[0], reduce[i]);
+                // }
                 
                 // Verify
                 // print(h[114])
@@ -280,7 +293,7 @@ void __global__ vq_gemv_kernel(
                 // Blockwise reduce
                 #pragma unroll
                 for (int mask = 16; mask > 0; mask >>= 1) {
-                    __hadd(reduce[0], __shfl_down_sync(0xffffffff, reduce[0], mask));
+                    reduce[0] = __hadd(reduce[0], __shfl_down_sync(0xffffffff, reduce[0], mask));
                 }
                 if (threadIdx.x % WARP_SIZE == 0) {
                     reduce_workspace[threadIdx.x / WARP_SIZE] = reduce[0];
@@ -292,7 +305,7 @@ void __global__ vq_gemv_kernel(
                 if (threadIdx.x < WARP_SIZE) {
                     #pragma unroll
                     for (int mask = WARP_NUM / 2; mask > 0; mask >>= 1) {
-                        __hadd(reduce[0], __shfl_down_sync(0x0000ffff, reduce[0], mask));
+                        reduce[0] = __hadd(reduce[0], __shfl_down_sync(0x0000ffff, reduce[0], mask));
                     }
                 }
                 if (threadIdx.x == 0) {
@@ -339,7 +352,7 @@ torch::Tensor vq_gemv(
     if ((batch == 8) && (hidden_dim == 4096)) {
         // ASSERTION: 1 * hidden_dim * sizeof(INPUT_TYPE) + _COMPRESSED_DIMS_PER_BLOCK * entry * compression_ratio * sizeof(INPUT_TYPE) + 2 * _ROWS_BLOCK_DO_AT_ONCE * _COMPRESSED_DIMS_PER_BLOCK * sizeof(WEIGHT_TYPE) < MAX_SHARED_MEM
         // hidden = 8192, _COMPRESSED_DIMS_PER_BLOCK = 4, _ROWS_BLOCK_DO_AT_ONCE = 1024 just okay!
-        auto kernel = vq_gemv_kernel<8, WARP_NUM * WARP_SIZE, 4096, _ROWS_BLOCK_DO_AT_ONCE, _COMPRESSED_DIMS_PER_BLOCK, 1, 128, 16, FALSE>;
+        auto kernel = vq_gemv_kernel<8, WARP_NUM * WARP_SIZE, 4096, _ROWS_BLOCK_DO_AT_ONCE, _COMPRESSED_DIMS_PER_BLOCK, 1, 128, 16, 2>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, MAX_SHARED_MEM);
         for (int wm = 0; wm < 50; wm++) {
         kernel<<<grid, WARP_NUM * WARP_SIZE, MAX_SHARED_MEM>>>(

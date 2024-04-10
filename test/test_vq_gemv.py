@@ -6,13 +6,13 @@ from VQKernel import vq_gemv
 # BATCH <= 16, > 16 -> vq_gemm
 BATCH = 8
 HIDDEN_DIM = 4096
-COMPRESSION_RATIO = 4
+COMPRESSION_RATIO = 2
 RESIDUALS = 1
 ENTRY = 256
 
 torch.manual_seed(1889)
 
-dummy = torch.rand((256, HIDDEN_DIM)).type(torch.float16).to("cuda:0")
+dummy = torch.rand((HIDDEN_DIM, HIDDEN_DIM)).type(torch.float16).to("cuda:0")
 
 h = torch.rand((BATCH, HIDDEN_DIM)).type(torch.float16).to("cuda:0")
 h = h.permute(1, 0).contiguous()
@@ -25,7 +25,8 @@ index = faiss.index_factory(
 index.train(dummy.to("cpu").numpy())
 codebook = torch.from_numpy(faiss.vector_to_array(index.prq.codebooks)).type(torch.float16).to("cuda:0")
 new_codebook = torch.zeros(codebook.shape).type(torch.float16).to("cuda:0")
-print(new_w.shape)
+# print(new_w.shape)
+w = torch.from_numpy(index.prq.compute_codes(dummy.to("cpu").numpy())).type(torch.uint8).to("cuda:0")
 # reorder w
 for d in range((HIDDEN_DIM // COMPRESSION_RATIO) * RESIDUALS):
     tmp = w[:, d].to("cpu").numpy()
@@ -46,7 +47,7 @@ for d in range((HIDDEN_DIM // COMPRESSION_RATIO) * RESIDUALS):
 # Reorder the residual layout of compressed tensor
 wr = []
 for r in range(RESIDUALS):
-    wr.append(w[:, [RESIDUALS * _ + r for _ in range((HIDDEN_DIM // COMPRESSION_RATIO))]])
+    wr.append(new_w[:, [RESIDUALS * _ + r for _ in range((HIDDEN_DIM // COMPRESSION_RATIO))]])
 new_new_w = None
 for r in range(RESIDUALS):
     new_new_w = wr[r] if new_new_w is None else torch.cat([new_new_w, wr[r]], dim=-1)
@@ -68,8 +69,14 @@ w_decoded = index.prq.decode(w.to("cpu").numpy())
 # print(h[:, 0])
 
 
-print(torch.dot(h[:, 0], torch.from_numpy(w_decoded[:, 0]).type(torch.float16).to("cuda:0")))
-print(o[0, 0])
+# print(torch.dot(h[:, 0], torch.from_numpy(w_decoded[:, 0]).type(torch.float16).to("cuda:0")))
+# print(o[0, 0])
+# print(h[:, 0])
+# print(h[:, 1])
+# print(torch.from_numpy(w_decoded[:, 0]).type(torch.float16).to("cuda:0"))
+# for item in new_new_w[:, 0]:
+#     print(new_codebook[int(item) * 4])
+# print(new_codebook[int(new_new_w[:, 0])])
 
-print(torch.dot(h[:, 3], torch.from_numpy(w_decoded[:, 114]).type(torch.float16).to("cuda:0")))
-print(o[3, 114])
+# print(torch.dot(h[:, 3], torch.from_numpy(w_decoded[:, 114]).type(torch.float16).to("cuda:0")))
+# print(o[3, 114])
