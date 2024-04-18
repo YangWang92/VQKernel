@@ -5,33 +5,35 @@
 #include "stdio.h"
 #include <iostream>
 
-#define CHECK_CUDA(val) check((val), #val, __FILE__, __LINE__)
-void check(cudaError_t err, const char* const func, const char* const file,
-           const int line)
-{
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA Runtime Error at: " << file << ":" << line
-                  << std::endl;
-        std::cerr << cudaGetErrorString(err) << " " << func << std::endl;
-        // We don't exit when we encounter CUDA errors in this example.
-        // std::exit(EXIT_FAILURE);
-    }
-}
+#define PROFILING 0
 
-#define CHECK_LAST_CUDA_ERROR() checkLast(__FILE__, __LINE__)
-void checkLast(const char* const file, const int line)
-{
-    cudaError_t const err{cudaGetLastError()};
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA Runtime Error at: " << file << ":" << line
-                  << std::endl;
-        std::cerr << cudaGetErrorString(err) << std::endl;
-        // We don't exit when we encounter CUDA errors in this example.
-        // std::exit(EXIT_FAILURE);
-    }
-}
+// #define CHECK_CUDA(val) check((val), #val, __FILE__, __LINE__)
+// void check(cudaError_t err, const char* const func, const char* const file,
+//            const int line)
+// {
+//     if (err != cudaSuccess)
+//     {
+//         std::cerr << "CUDA Runtime Error at: " << file << ":" << line
+//                   << std::endl;
+//         std::cerr << cudaGetErrorString(err) << " " << func << std::endl;
+//         // We don't exit when we encounter CUDA errors in this example.
+//         // std::exit(EXIT_FAILURE);
+//     }
+// }
+
+// #define CHECK_LAST_CUDA_ERROR() checkLast(__FILE__, __LINE__)
+// void checkLast(const char* const file, const int line)
+// {
+//     cudaError_t const err{cudaGetLastError()};
+//     if (err != cudaSuccess)
+//     {
+//         std::cerr << "CUDA Runtime Error at: " << file << ":" << line
+//                   << std::endl;
+//         std::cerr << cudaGetErrorString(err) << std::endl;
+//         // We don't exit when we encounter CUDA errors in this example.
+//         // std::exit(EXIT_FAILURE);
+//     }
+// }
 
 #define WARP_SIZE 32
 #define WARP_NUM 16
@@ -180,7 +182,7 @@ void __global__ vq_gemv_kernel(
     INPUT_TYPE *h_shmem = reinterpret_cast<INPUT_TYPE*>(smem + sizeof(INPUT_TYPE) * codebook_to_load);
     WEIGHT_TYPE *w_compressed_ping = reinterpret_cast<WEIGHT_TYPE*>(h_shmem + sizeof(INPUT_TYPE) * HIDDEN_DIM);
     // WEIGHT_TYPE *w_compressed_pong = reinterpret_cast<WEIGHT_TYPE*>(w_compressed_ping + COMPRESSED_DIMS_PER_BLOCK * ROWS_BLOCK_DO_AT_ONCE * sizeof(WEIGHT_TYPE));
-    INPUT_TYPE *reduce_workspace = reinterpret_cast<INPUT_TYPE*>(w_compressed_ping + COMPRESSED_DIMS_PER_BLOCK * ROWS_BLOCK_DO_AT_ONCE * sizeof(WEIGHT_TYPE));
+    half2 *reduce_workspace = reinterpret_cast<half2*>(w_compressed_ping + COMPRESSED_DIMS_PER_BLOCK * ROWS_BLOCK_DO_AT_ONCE * sizeof(WEIGHT_TYPE));
 
     INPUT_TYPE h_reg[(ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE][BATCH_SIZE];
     INPUT_TYPE w_dequant[(ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE][B32REG_LIMIT * (sizeof(uint32_t) / sizeof(INPUT_TYPE)) / ((ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE)];
@@ -271,11 +273,12 @@ void __global__ vq_gemv_kernel(
         for (int b = 0; b < BATCH_SIZE; b++) {
 
             // TODO: Optimize: __hadd2, __hmul2
-            for (int d = 0; d < COMPRESSED_DIMS_PER_BLOCK * _compression_ratio; d++) {
-                INPUT_TYPE reduce[(ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE];
+            half2 h2_reg = __half2(h_reg[threadIdx.x / BLOCK_SIZE][b], h_reg[threadIdx.x / BLOCK_SIZE][b]);
+            for (int d = 0; d < COMPRESSED_DIMS_PER_BLOCK * _compression_ratio; d+=2) {
+                half2 reduce[(ROWS_BLOCK_DO_AT_ONCE + (BLOCK_SIZE - 1)) / BLOCK_SIZE];
                 for (int tid = threadIdx.x; tid < ROWS_BLOCK_DO_AT_ONCE; tid += BLOCK_SIZE) {
                     if (tid < HIDDEN_DIM) {
-                        reduce[tid / BLOCK_SIZE] = __hmul(h_reg[tid / BLOCK_SIZE][b], w_dequant[tid / BLOCK_SIZE][d]);
+                        reduce[tid / BLOCK_SIZE] = __hmul2(h2_reg, *(half2*)(&w_dequant[tid / BLOCK_SIZE][d]));
                         // if (blockIdx.x == 0 && b == 0 && d == 0) {
                         //     printf("%d : % 5.3f * %5.3f = % 5.3f\n", threadIdx.x, __half2float(h_reg[tid / BLOCK_SIZE][b]), __half2float(w_dequant[tid / BLOCK_SIZE][d]), __half2float(reduce[tid / BLOCK_SIZE]));
                         // }
@@ -296,7 +299,7 @@ void __global__ vq_gemv_kernel(
                 // Blockwise reduce
                 #pragma unroll
                 for (int mask = 16; mask > 0; mask >>= 1) {
-                    reduce[0] = __hadd(reduce[0], __shfl_down_sync(0xffffffff, reduce[0], mask));
+                    reduce[0] = __hadd2(reduce[0], __shfl_down_sync(0xffffffff, reduce[0], mask));
                 }
                 if (threadIdx.x % WARP_SIZE == 0) {
                     reduce_workspace[threadIdx.x / WARP_SIZE] = reduce[0];
@@ -308,13 +311,13 @@ void __global__ vq_gemv_kernel(
                 if (threadIdx.x < WARP_SIZE) {
                     #pragma unroll
                     for (int mask = WARP_NUM / 2; mask > 0; mask >>= 1) {
-                        reduce[0] = __hadd(reduce[0], __shfl_down_sync(0x0000ffff, reduce[0], mask));
+                        reduce[0] = __hadd2(reduce[0], __shfl_down_sync(0x0000ffff, reduce[0], mask));
                     }
                 }
                 if (threadIdx.x == 0) {
                     // If residual == 1, no atomic needed.
-                    // __hadd(_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d], reduce[0]);
-                    atomicAdd(&_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d], reduce[0]);
+                    *(half2*)(&_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d]) = __hadd2(*(half2*)(&_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d]), *(half2*)(&reduce[0]));
+                    // atomicAdd((half2*)&_o[b * HIDDEN_DIM + subspace_group_id * COMPRESSED_DIMS_PER_BLOCK * _compression_ratio + d], *(half2*)(&reduce[0]));
                 }
             }
         }
@@ -356,8 +359,9 @@ torch::Tensor vq_gemv(
     if ((batch == 8) && (hidden_dim == 4096)) {
         // ASSERTION: 1 * hidden_dim * sizeof(INPUT_TYPE) + _COMPRESSED_DIMS_PER_BLOCK * entry * compression_ratio * sizeof(INPUT_TYPE) + 2 * _ROWS_BLOCK_DO_AT_ONCE * _COMPRESSED_DIMS_PER_BLOCK * sizeof(WEIGHT_TYPE) < MAX_SHARED_MEM
         // hidden = 8192, _COMPRESSED_DIMS_PER_BLOCK = 4, _ROWS_BLOCK_DO_AT_ONCE = 1024 just okay!
-        auto kernel = vq_gemv_kernel<8, WARP_NUM * WARP_SIZE, 4096, _ROWS_BLOCK_DO_AT_ONCE, _COMPRESSED_DIMS_PER_BLOCK, 1, 128, 16, 2>;
+        auto kernel = vq_gemv_kernel<8, WARP_NUM * WARP_SIZE, 4096, _ROWS_BLOCK_DO_AT_ONCE, _COMPRESSED_DIMS_PER_BLOCK, 1, 128, 16, 0>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, MAX_SHARED_MEM);
+#if PROFILING == 1
         for (int wm = 0; wm < 50; wm++) {
         kernel<<<grid, WARP_NUM * WARP_SIZE, MAX_SHARED_MEM>>>(
             o_ptr, 
@@ -370,6 +374,7 @@ torch::Tensor vq_gemv(
         }
         cudaEventRecord(st);
         for (int iter = 0; iter < 250; iter++) {
+#endif
         kernel<<<grid, WARP_NUM * WARP_SIZE, MAX_SHARED_MEM>>>(
             o_ptr, 
             h_ptr,
@@ -378,17 +383,19 @@ torch::Tensor vq_gemv(
             residual, compression_ratio, entry,
             d_verify
         );
+#if PROFILING == 1
         }
         cudaEventRecord(ed);
         cudaEventSynchronize(ed);
         float ms;
         cudaEventElapsedTime(&ms, st, ed);
         std::cout << ms / 250.0 << std::endl;
+#endif
     }
     cudaDeviceSynchronize();
     cudaMemcpy(h_verify, reinterpret_cast<void*>(d_verify), sizeof(INPUT_TYPE) * residual * (hidden_dim / compression_ratio) * entry * compression_ratio, cudaMemcpyDeviceToHost);
     
-    CHECK_LAST_CUDA_ERROR();
+    // CHECK_LAST_CUDA_ERROR();
 
     // INPUT_TYPE* codebook_host = new INPUT_TYPE[residual * (hidden_dim / compression_ratio) * entry * compression_ratio];
     // cudaMemcpy(codebook_host, reinterpret_cast<void*>(codebook_ptr), sizeof(INPUT_TYPE) * residual * (hidden_dim / compression_ratio) * entry * compression_ratio, cudaMemcpyDeviceToHost);

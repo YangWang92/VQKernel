@@ -16,8 +16,7 @@ dummy = torch.rand((HIDDEN_DIM, HIDDEN_DIM)).type(torch.float16).to("cuda:0")
 
 h = torch.rand((BATCH, HIDDEN_DIM)).type(torch.float16).to("cuda:0")
 h = h.permute(1, 0).contiguous()
-w = ((torch.rand((HIDDEN_DIM, (HIDDEN_DIM // COMPRESSION_RATIO) * RESIDUALS)) * 1000) % 256).type(torch.uint8).to("cuda:0")
-new_w = torch.zeros(w.shape).type(torch.uint8).to("cuda:0")
+# w = ((torch.rand((HIDDEN_DIM, (HIDDEN_DIM // COMPRESSION_RATIO) * RESIDUALS)) * 1000) % 256).type(torch.uint8).to("cuda:0")
 index = faiss.index_factory(
     HIDDEN_DIM,
     "PRQ%dx%dx8" % (HIDDEN_DIM // COMPRESSION_RATIO, RESIDUALS)
@@ -27,6 +26,7 @@ codebook = torch.from_numpy(faiss.vector_to_array(index.prq.codebooks)).type(tor
 new_codebook = torch.zeros(codebook.shape).type(torch.float16).to("cuda:0")
 # print(new_w.shape)
 w = torch.from_numpy(index.prq.compute_codes(dummy.to("cpu").numpy())).type(torch.uint8).to("cuda:0")
+new_w = torch.zeros(w.shape).type(torch.uint8).to("cuda:0")
 # reorder w
 for d in range((HIDDEN_DIM // COMPRESSION_RATIO) * RESIDUALS):
     tmp = w[:, d].to("cpu").numpy()
@@ -78,5 +78,5 @@ w_decoded = index.prq.decode(w.to("cpu").numpy())
 #     print(new_codebook[int(item) * 4])
 # print(new_codebook[int(new_new_w[:, 0])])
 
-# print(torch.dot(h[:, 3], torch.from_numpy(w_decoded[:, 114]).type(torch.float16).to("cuda:0")))
-# print(o[3, 114])
+print(torch.dot(h[:, 3], torch.from_numpy(w_decoded[:, 114]).type(torch.float16).to("cuda:0")))
+print(o[3, 114])

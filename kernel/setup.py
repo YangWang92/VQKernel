@@ -10,7 +10,7 @@ extra_compile_args = {
         "-O2",
         "-std=c++17",
         "-arch=compute_80",
-        "-code=sm_80"
+        "-code=sm_80",
     ],
 }
 
@@ -24,6 +24,7 @@ setup(
                 "pybind.cpp",
                 "vq_attention/vq_attention_decoding.cu",
                 "vq_gemv/vq_gemv.cu",
+                "vq_gemm/vq_gemm.cu",
             ],
             extra_compile_args=extra_compile_args,
         ),
