@@ -230,10 +230,10 @@ void __global__ vq_gemm_kernel(
             // if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) printf("[Compute] k = %d, Consuming H[%d] and D[%d]\n", k, k % 3, k % 2);
             // wmma matmul.
             for (int ik = 0; ik < K_BLOCK_TILE; ik += 16) {
-                // load_matrix_sync(a, (const INPUT_TYPE*) (&h_buf[(warp_id / 2) * 16 * K_BLOCK_TILE + ik]), K_BLOCK_TILE);
-                // load_matrix_sync(b, (const INPUT_TYPE*) (&d_buf[ik * N_BLOCK_TILE + (warp_id % 2) * (N_BLOCK_TILE / 2)]), N_BLOCK_TILE);
+                load_matrix_sync(a, (const INPUT_TYPE*) (&h_buf[(warp_id / 2) * 16 * K_BLOCK_TILE + ik]), K_BLOCK_TILE);
+                load_matrix_sync(b, (const INPUT_TYPE*) (&d_buf[ik * N_BLOCK_TILE + (warp_id % 2) * (N_BLOCK_TILE / 2)]), N_BLOCK_TILE);
                 mma_sync(c0, a, b, c0);
-                // load_matrix_sync(b, (const INPUT_TYPE*) (&d_buf[ik * N_BLOCK_TILE + (warp_id % 2) * (N_BLOCK_TILE / 2) + 16]), N_BLOCK_TILE);
+                load_matrix_sync(b, (const INPUT_TYPE*) (&d_buf[ik * N_BLOCK_TILE + (warp_id % 2) * (N_BLOCK_TILE / 2) + 16]), N_BLOCK_TILE);
                 mma_sync(c1, a, b, c1);
             }
 
@@ -242,8 +242,8 @@ void __global__ vq_gemm_kernel(
             barrier::arrival_token token_d_c = bar[10 + k % 2].arrive();  // Signal D[k % 2] is ready to be refilled
             __syncthreads();
         }
-        // store_matrix_sync((INPUT_TYPE*) (&_o[blockIdx.x * M_BLOCK_TILE * _n + blockIdx.y * N_BLOCK_TILE + (warp_id / 2) * 16 * _n + (warp_id % 2) * (N_BLOCK_TILE / 2)]), c0, _n, wmma::mem_row_major);
-        // store_matrix_sync((INPUT_TYPE*) (&_o[blockIdx.x * M_BLOCK_TILE * _n + blockIdx.y * N_BLOCK_TILE + (warp_id / 2) * 16 * _n + (warp_id % 2) * (N_BLOCK_TILE / 2) + 16]), c1, _n, wmma::mem_row_major);
+        store_matrix_sync((INPUT_TYPE*) (&_o[blockIdx.x * M_BLOCK_TILE * _n + blockIdx.y * N_BLOCK_TILE + (warp_id / 2) * 16 * _n + (warp_id % 2) * (N_BLOCK_TILE / 2)]), c0, _n, wmma::mem_row_major);
+        store_matrix_sync((INPUT_TYPE*) (&_o[blockIdx.x * M_BLOCK_TILE * _n + blockIdx.y * N_BLOCK_TILE + (warp_id / 2) * 16 * _n + (warp_id % 2) * (N_BLOCK_TILE / 2) + 16]), c1, _n, wmma::mem_row_major);
     
     }
     else if (threadIdx.x >= 256 && threadIdx.x < 512) {
@@ -269,8 +269,7 @@ void __global__ vq_gemm_kernel(
             for (int t = tid; t < K_BLOCK_TILE * N_BLOCK_TILE / _compression_ratio; t += DEQUANT_WARP * WARP_SIZE) {
                 switch (_compression_ratio) {
                     case 2:
-                        *(uint32_t*)(&d_buf[t * _compression_ratio]) = *(uint32_t*)(&codebook_shmem[(blockIdx.y * subspace_per_block + t % subspace_per_block) * subspace_stride + w_buf[t] * _compression_ratio]);
-                        // d_buf[t] = __float2half(1.0 * t);
+                        *(uint32_t*)(&d_buf[t * _compression_ratio]) = *(uint32_t*)(&codebook_shmem[tid * _compression_ratio]);
                         break;
                     case 4:    
                         *(uint64_t*)(&d_buf[t * _compression_ratio]) = *(uint64_t*)(&codebook_shmem[(blockIdx.y * subspace_per_block + t % subspace_per_block) * subspace_stride + w_buf[t] * _compression_ratio]);
