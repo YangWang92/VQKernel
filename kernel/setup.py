@@ -25,6 +25,7 @@ setup(
                 "vq_attention/vq_attention_decoding.cu",
                 "vq_gemv/vq_gemv.cu",
                 "vq_gemm/vq_gemm.cu",
+                "quip_gemm/quip_gemm.cu",
             ],
             extra_compile_args=extra_compile_args,
         ),
