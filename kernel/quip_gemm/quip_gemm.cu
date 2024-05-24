@@ -35,7 +35,9 @@
 #define MMA_TILE_N 8
 #define MMA_TILE_K 16
 
-#define MAX_SHARED_MEMORY_USAGE 34816
+#define MAX_SHARED_MEMORY_USAGE 10240
+
+
 
 __device__ __forceinline__ uint32_t shmem_uint32_t(const void* shmem_ptr) {
     uint32_t addr;
@@ -54,14 +56,16 @@ void fill_matrix(T* mat, int sz) {
     std::random_device r;
     std::mt19937 rng(r());
     std::normal_distribution<float> norm_dist(0.0, 5.0);
-    std::exponential_distribution<float> exp_dist(0.01);
+    std::exponential_distribution<float> exp_dist(0.005);
     for (int i = 0; i < sz; i++) {
         if constexpr(std::is_same<T, half>::value) {
             mat[i] = __float2half(norm_dist(rng));
         }
+        
         else if constexpr(std::is_same<T, uint8_t>::value) {
             // mat[i] = static_cast<uint8_t>((norm_dist(rng)) * (1.0 * ENTRY)) % ENTRY;
             mat[i] = static_cast<uint8_t>(exp_dist(rng)) % ENTRY;
+            // mat[i] = (uint8_t) 1;
         }
     }
 }
@@ -113,6 +117,10 @@ __device__ void loadShmemA(half* shmem, half *A, int m, int k, int ko) {
 }
 
 __device__ void dequantToShmemB_EntryCentric(half* shmem, uint8_t* B_q, half* codebook, int k, int n, int ko) {
+    uint64_t prefill = 0x1234567887654321;
+    for (int i = 0; i < 8; i++) {
+        *(uint64_t*)(&shmem[(i * 4 + (threadIdx.x / 32)) * 128 + (threadIdx.x % 32) * 4]) = prefill;
+    }
     uint8_t mask = 0, indices[8];
     half entry[RATIO];
     *(uint64_t*)(&indices[0]) = *(uint64_t*)(&B_q[(ko * BLOCK_TILE_K) * (n / RATIO) + blockIdx.y * (BLOCK_TILE_N / RATIO) + (threadIdx.x / 4) * (n / RATIO) + (threadIdx.x % 4) * 8]);
@@ -120,7 +128,7 @@ __device__ void dequantToShmemB_EntryCentric(half* shmem, uint8_t* B_q, half* co
         *(uint64_t*)(&entry[0]) = *(uint64_t*)(&codebook[((uint32_t)e) * RATIO]);
         for (int i = 0; i < 8; i++) {
             if (e == indices[i]) {
-                *(uint64_t*)(&shmem[(threadIdx.x / 64) * (8 * 16 * 16) + (2 * (threadIdx.x % 4) + (i / 4)) * (16 * 16) + ((threadIdx.x % 64) / 4) * (16) + (i % 4) * 4]) = *(uint64_t*)(&entry[0]);
+                // *(uint64_t*)(&shmem[(threadIdx.x / 64) * (8 * 16 * 16) + (2 * (threadIdx.x % 4) + (i / 4)) * (16 * 16) + ((threadIdx.x % 64) / 4) * (16) + (i % 4) * 4]) = *(uint64_t*)(&entry[0]);
                 mask |= (0x1 << i);
             }
         }
@@ -135,7 +143,7 @@ __device__ void dequantToShmemB_EntryCentric(half* shmem, uint8_t* B_q, half* co
 
 __device__ void dequantToRegB(uint32_t* frag, uint8_t* B_q, half* codebook, int k, int n, int ko, int ki) {
     // Output should be 16x64
-    // Every warp do 16x8
+    // Every time do 16x8
     uint32_t warp_id_x = (threadIdx.x / WARP_SIZE) / 2;
     uint32_t warp_id_y = (threadIdx.x / WARP_SIZE) % 2;
     uint32_t lane_id = threadIdx.x % WARP_SIZE;
@@ -143,23 +151,69 @@ __device__ void dequantToRegB(uint32_t* frag, uint8_t* B_q, half* codebook, int 
     //     uint8_t id = B_q[((ko * BLOCK_TILE_K + ki * WARP_TILE_K) * (n / RATIO)) + blockIdx.y * (BLOCK_TILE_N / RATIO) + warp_id_y * (WARP_TILE_N / RATIO) + i * (MMA_TILE_N / RATIO) + (lane_id % 2) * 8 * (n / RATIO) + (lane_id / 4) * (n / RATIO) + ((lane_id % 4) / 2)];
     //     *(uint64_t*)(&frag[i * 2]) = *(uint64_t*)(&codebook[((uint32_t) id) * 4]);
     // }
-    uint8_t ids[8];
-    *(uint64_t*)(&ids[0]) = *(uint64_t*)(&B_q[(ko * BLOCK_TILE_K + ki * WARP_TILE_K) * (n / RATIO) + blockIdx.y * (BLOCK_TILE_N / RATIO) + warp_id_y * (WARP_TILE_N / RATIO) + (lane_id % 2) * 8 * (n / RATIO) + (lane_id / 4) * (n / RATIO) + ((lane_id % 4) / 2) * 8]);
-    *(uint32_t*)(&ids[4]) = __shfl_xor_sync(0xffffffff, *(uint32_t*)(&ids[4]), 2);
-    *(uint16_t*)(&ids[2]) = __shfl_xor_sync(0xffffffff, *(uint16_t*)(&ids[2]), 2);
-    *(uint16_t*)(&ids[6]) = __shfl_xor_sync(0xffffffff, *(uint16_t*)(&ids[6]), 2);
-    *(uint8_t*)(&ids[1]) = __shfl_xor_sync(0xffffffff, *(uint8_t*)(&ids[1]), 2);
-    *(uint8_t*)(&ids[3]) = __shfl_xor_sync(0xffffffff, *(uint8_t*)(&ids[3]), 2);
-    *(uint8_t*)(&ids[5]) = __shfl_xor_sync(0xffffffff, *(uint8_t*)(&ids[5]), 2);
-    *(uint8_t*)(&ids[7]) = __shfl_xor_sync(0xffffffff, *(uint8_t*)(&ids[7]), 2);
+    uint8_t ids[16];
+    *(uint4*)(&ids[0]) = *(uint4*)(&B_q[(ko * BLOCK_TILE_K + ki * WARP_TILE_K) * (n / RATIO) + blockIdx.y * (BLOCK_TILE_N / RATIO) + warp_id_y * (WARP_TILE_N / RATIO) + (lane_id % 2) * 8 * (n / RATIO) + (lane_id / 4) * (n / RATIO)]);
+    // *(uint64_t*)(&ids[0]) = *(uint64_t*)(&ids[8]);
+    // if (ko == 0 && ki == 0 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+    //     printf("0x%08x, 0x%08x, 0x%08x, 0x%08x\n", *(uint32_t*)(&ids[0]), *(uint32_t*)(&ids[4]), *(uint32_t*)(&ids[8]), *(uint32_t*)(&ids[12]));
+    // }    
+    // *(uint64_t*)(&ids[8]) = __shfl_xor_sync(0xfffffff, *(uint64_t*)(&ids[8]), 0x2);
+    // *(uint32_t*)(&ids[0]) = __shfl_sync(0xffffffff, *(uint32_t*)(&ids[0]), (threadIdx.x & 0x2) ? threadIdx.x - 2 : threadIdx.x);
+    // *(uint32_t*)(&ids[4]) = __shfl_sync(0xffffffff, *(uint32_t*)(&ids[4]), (threadIdx.x & 0x2) ? threadIdx.x - 2 : threadIdx.x);
+    // *(uint32_t*)(&ids[8]) = __shfl_sync(0xffffffff, *(uint32_t*)(&ids[8]), (threadIdx.x & 0x2) ? threadIdx.x - 2 : threadIdx.x);
+    // *(uint32_t*)(&ids[12]) = __shfl_sync(0xffffffff, *(uint32_t*)(&ids[12]), (threadIdx.x & 0x2) ? threadIdx.x - 2 : threadIdx.x);
+    // if (ko == 0 && ki == 0 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+    //     for (int i = 0; i < 16; i++) {
+    //         printf("%d, ", (uint32_t) ids[i]);
+    //     }
+    //     printf("\n");
+    // }
+    // if (threadIdx.x & 0x2) {
+    //     uint64_t tmp = *(uint64_t*)(&ids[0]);
+    //     *(uint64_t*)(&ids[0]) = *(uint64_t*)(&ids[8]);
+    //     *(uint64_t*)(&ids[8]) = tmp;
+    // }
 
-    *(uint64_t*)(&frag[0]) = *(uint64_t*)(&codebook[((uint32_t) ids[0]) * 4]);
+    // *(uint32_t*)(&ids[4]) = __shfl_xor_sync(0xffffffff, *(uint32_t*)(&ids[4]), 2);
+    // *(uint16_t*)(&ids[2]) = __shfl_xor_sync(0xffffffff, *(uint16_t*)(&ids[2]), 2);
+    // *(uint16_t*)(&ids[6]) = __shfl_xor_sync(0xffffffff, *(uint16_t*)(&ids[6]), 2);
+    // ids[1] = __shfl_xor_sync(0xffffffff, ids[0], 2);
+    // ids[3] = __shfl_xor_sync(0xffffffff, ids[2], 2);
+    // ids[5] = __shfl_xor_sync(0xffffffff, ids[4], 2);
+    // ids[7] = __shfl_xor_sync(0xffffffff, ids[6], 2);
+    // uint64_t entry = 0x1234567887654321;
     #pragma unroll
-    for (int i = 1; i < 8; i++) {
-        *(uint64_t*)(&frag[i * 2]) = *(uint64_t*)(&codebook[((uint32_t) ids[i]) * 4]);
-        *(uint32_t*)(&frag[(i-1) * 2 + 1]) = __shfl_xor_sync(0xffffffff, *(uint32_t*)(&frag[(i-1) * 2 + 1]), 1);
+    for (int i = 0; i < 8; i++) {
+        *(uint64_t*)(&frag[i * 2]) = 0x1234567887654321;
     }
-    *(uint32_t*)(&frag[15]) = __shfl_xor_sync(0xffffffff, *(uint32_t*)(&frag[15]), 1);
+    uint8_t mask = 0;
+    for (uint8_t e = 0; e < ENTRY_CENTRIC; e++) {
+        // uint64_t entry = *(uint64_t*)(&codebook[((uint32_t) e) * 4]);
+        #pragma unroll
+        for (int i = 0; i < 8; i++) {
+            if (e == ids[i]) {
+                // *(uint64_t*)(&frag[i * 2]) = entry;
+                mask |= (0x1 << i);
+            }
+        }
+    }
+    for (int i = 0; i < 8; i++) {
+        if (!(mask & (0x1 << 8))) *(uint64_t*)(&frag[i * 2]) = *(uint64_t*)(&codebook[((uint32_t) ids[i * 2 + threadIdx.x & 0x1]) * 4]);
+        // if (!(mask & (0x1 << 8))) *(uint64_t*)(&frag[i * 2]) = *(uint64_t*)(&codebook[((uint32_t) ids[(threadIdx.x & 0x1) * 8 + ((i - (threadIdx.x & 0x1) * 4) * 2) + (threadIdx.x & 0x1)]) * 4]);
+        if (threadIdx.x % 2 == 0) {
+            uint32_t tmp = frag[i * 2];
+            frag[i * 2] = frag[i * 2 + 1];
+            frag[i * 2 + 1] = tmp;
+        }
+        frag[i * 2] = __shfl_xor_sync(0xffffffff, frag[i * 2], 0x1);
+        if (threadIdx.x % 2 == 0) {
+            uint32_t tmp = frag[i * 2];
+            frag[i * 2] = frag[i * 2 + 1];
+            frag[i * 2 + 1] = tmp;
+        }
+    }
+
+
 }
 
 __device__ void loadFragA_mma(uint32_t* frag, half *shmem, int ki) {
@@ -252,6 +306,22 @@ __device__ void storeShmemC(half *C, half* shmem, int m, int n) {
     }
 }
 
+__device__ void storeC(half* C, uint32_t* frag, int m, int n) {
+    uint32_t warp_id_x = (threadIdx.x / WARP_SIZE) / 2;
+    uint32_t warp_id_y = (threadIdx.x / WARP_SIZE) % 2;
+    uint32_t lane_id = threadIdx.x % WARP_SIZE;
+    #pragma unroll
+    for (int i = 0; i < 4; i++) {
+        #pragma unroll
+        for (int j = 0; j < 8; j++) {
+            *(uint32_t*)(&C[(blockIdx.x * BLOCK_TILE_M + warp_id_x * WARP_TILE_M + i * MMA_TILE_M + (lane_id / 4) + 0) * n + (blockIdx.y * BLOCK_TILE_N + warp_id_y * WARP_TILE_N + j * MMA_TILE_N + (lane_id % 4) * 2)]) = 
+            *(uint32_t*)(&frag[(i * 8 + j) * 2 + 0]);
+            *(uint32_t*)(&C[(blockIdx.x * BLOCK_TILE_M + warp_id_x * WARP_TILE_M + i * MMA_TILE_M + (lane_id / 4) + 8) * n + (blockIdx.y * BLOCK_TILE_N + warp_id_y * WARP_TILE_N + j * MMA_TILE_N + (lane_id % 4) * 2)]) = 
+            *(uint32_t*)(&frag[(i * 8 + j) * 2 + 1]);
+        }
+    }
+}
+
 __global__ void quip_gemm_kernel(
     half* _input,
     uint8_t* _w,
@@ -262,9 +332,9 @@ __global__ void quip_gemm_kernel(
 {
     extern __shared__ uint8_t shmem[];
     half *A_buf = reinterpret_cast<half*>(shmem);
-    half *B_buf = reinterpret_cast<half*>(shmem + BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
-    half *C_buf = reinterpret_cast<half*>(shmem);
-    half *codebook_buf = reinterpret_cast<half*>(shmem + BLOCK_TILE_M * BLOCK_TILE_N * sizeof(half));
+    // half *B_buf = reinterpret_cast<half*>(shmem + BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
+    // half *C_buf = reinterpret_cast<half*>(shmem);
+    half *codebook_buf = reinterpret_cast<half*>(shmem + 8192);
 
     load_codebook(codebook_buf, _codebook);
     asm volatile("cp.async.wait_all;\n"::);
@@ -282,6 +352,7 @@ __global__ void quip_gemm_kernel(
         for (int ki = 0; ki < BLOCK_TILE_K / WARP_TILE_K; ki++) {
             loadFragA_mma(A_frags, A_buf, ki);
             // loadFragB_mma(B_frags, B_buf, ki);
+
             dequantToRegB(B_frags, _w, codebook_buf, K, N, ko, ki);
             for (int mm = 0; mm < WARP_TILE_M / WMMA_TILE_M; mm++) {
                 for (int nn = 0; nn < WARP_TILE_N / WMMA_TILE_N; nn++) {
@@ -290,9 +361,10 @@ __global__ void quip_gemm_kernel(
             }
         }
     }
-    storeFragC_mma(C_buf, C_frags);
-    __syncthreads();
-    storeShmemC(_o, C_buf, M, N);  
+    // storeFragC_mma(C_buf, C_frags);
+    // __syncthreads();
+    // storeShmemC(_o, C_buf, M, N);  
+    storeC(_o, C_frags, M, N);
 }
 
 // For rapid debugging
@@ -338,10 +410,21 @@ torch::Tensor quip_gemm(
     torch::Tensor o = torch::full({seq_len, hidden_dim}, 0, options);
 
     uint8_t *h_dummy_w, *d_dummy_w;
-    h_dummy_w = new uint8_t[hidden_dim * hidden_dim];
-    fill_matrix(h_dummy_w, hidden_dim * hidden_dim);
-    cudaMalloc(reinterpret_cast<void**>(&d_dummy_w), sizeof(uint8_t) * hidden_dim * hidden_dim);
-    cudaMemcpy(reinterpret_cast<void*>(d_dummy_w), h_dummy_w, sizeof(uint8_t) * hidden_dim * hidden_dim, cudaMemcpyHostToDevice);
+    h_dummy_w = new uint8_t[hidden_dim * hidden_dim / RATIO];
+    fill_matrix(h_dummy_w, hidden_dim * hidden_dim / RATIO);
+    // for (uint8_t i = 0; i < 255; i++) {
+    //     int cnt = 0;
+    //     for (int x = 0; x < hidden_dim * hidden_dim / RATIO; x++) {
+    //         if (h_dummy_w[x] == i) {
+    //             cnt++;
+    //         }
+    //     }
+    //     printf("%04d : ", (uint32_t) i);
+    //     for (int x = 0; x < (uint32_t) (cnt / 1500.0); x++) printf("*");
+    //     printf("\n");
+    // }
+    cudaMalloc(reinterpret_cast<void**>(&d_dummy_w), sizeof(uint8_t) * hidden_dim * hidden_dim / RATIO);
+    cudaMemcpy(reinterpret_cast<void*>(d_dummy_w), h_dummy_w, sizeof(uint8_t) * hidden_dim * hidden_dim / RATIO, cudaMemcpyHostToDevice);
 
     half* input_ptr = reinterpret_cast<half*>(input.data_ptr<at::Half>());
     uint8_t* w_ptr = reinterpret_cast<uint8_t*>(w.data_ptr<uint8_t>());
@@ -367,7 +450,7 @@ torch::Tensor quip_gemm(
 #endif
     quip_gemm_kernel<<<grid, block, MAX_SHARED_MEMORY_USAGE>>>(
         input_ptr,
-        w_ptr,
+        d_dummy_w,
         codebook_ptr,
         o_ptr,
         seq_len,

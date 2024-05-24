@@ -11,6 +11,7 @@ extra_compile_args = {
         "-std=c++17",
         "-arch=compute_80",
         "-code=sm_80",
+        # "-lineinfo",
     ],
 }
 
@@ -25,7 +26,13 @@ setup(
                 "vq_attention/vq_attention_decoding.cu",
                 "vq_gemv/vq_gemv.cu",
                 "vq_gemm/vq_gemm.cu",
-                "quip_gemm/quip_gemm.cu",
+                # "quip_gemm/quip_gemm.cu",
+                # "aqlm_gemm/aqlm_gemm.cu",
+                # "gptvq_gemm/gptvq_gemm.cu",
+                # "gptvq_gemv/gptvq_gemv.cu",
+                "e2e-gemm/e2e-gemm.cu",
+                # "e2e-gemm/e2e-gemv.cu",
+                # "e2e-attention/e2e-attention.cu",
             ],
             extra_compile_args=extra_compile_args,
         ),

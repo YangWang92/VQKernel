@@ -12,6 +12,6 @@ torch.manual_seed(1889)
 INPUT = torch.rand((SEQ_LEN, HIDDEN_DIM)).type(torch.float16).to("cuda:0")
 WEIGHT = torch.rand((HIDDEN_DIM, HIDDEN_DIM // COMPRESSION_RATIO)).type(torch.uint8).to("cuda:0")
 CODEBOOK = torch.rand((ENTRY, COMPRESSION_RATIO)).type(torch.float16).to("cuda:0")
-
+# print(WEIGHT)
 OUTPUT = quip_gemm(INPUT, WEIGHT, CODEBOOK)
 print(OUTPUT[0])

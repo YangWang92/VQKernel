@@ -2,3 +2,6 @@ kernel/build
 kernel/VQKernel.egg-info
 kernel/*.so
 test/tmp
+test/e2e_weight/indices
+test/e2e_weight_bkp
+test/.test_e2e.py.bkp
