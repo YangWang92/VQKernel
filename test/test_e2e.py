@@ -4,7 +4,7 @@ import numpy as np
 from VQKernel import e2e_gemm_rq
 from faiss.contrib.inspect_tools import get_pq_centroids
 from tqdm import tqdm
-SEQ_LEN = 4096
+SEQ_LEN = 2048
 COMPRESSION_RATIO = 4
 ENTRY = 256
 RESIDUAL = 1
@@ -119,6 +119,9 @@ hidden = torch.rand((SEQ_LEN, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda
 ori = torch.matmul(hidden, w_original)
 ref = torch.matmul(hidden, w_dequantized + w_residual_dequantized)
 res = e2e_gemm_rq(hidden, w_quantized_reordered, codebook_reordered, w_residual_quantized, codebook_residual)
+
+# ref = torch.matmul(hidden, w_dequantized)
+# res = e2e_gemm(hidden, w_quantized_reordered, codebook_reordered)
 
 print("Error:%5.2f" % (np.median(np.abs(((ref - res) / res).to("cpu").numpy())) * 100), "%")
 

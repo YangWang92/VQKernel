@@ -40,8 +40,8 @@ constexpr uint8_t ENTRY_BUFFERED = (uint32_t)ENTRY / (uint32_t)HOT;
 
 // A + B = 16384, Codebook: (128 / 8) * 256 * 4 * 2 = 32768
 #define MAX_SHARED_MEMORY_USAGE (16384 + CODEBOOK_BUFFERING * (32768 / HOT))
-#define MAX_SHARED_MEMORY_USAGE_R (16384 + 2 * CODEBOOK_BUFFERING * (32768 / HOT))
-
+// #define MAX_SHARED_MEMORY_USAGE_R (16384 + 2 * CODEBOOK_BUFFERING * (32768 / HOT))
+#define MAX_SHARED_MEMORY_USAGE_R 98304
 __device__ __forceinline__ uint32_t shmem_uint32_t(const void* shmem_ptr) {
     uint32_t addr;
     asm volatile(
@@ -384,6 +384,19 @@ __device__ void element_wise_add_half4(
     // *A = *(uint64_t*)(&a[0]);
 }
 
+__device__ uint64_t element_wise_add_half4_(
+    half *A,
+    half *B
+)
+{
+    half a[4], b[4], res[4];
+    *(uint64_t*)(&a[0]) = *(uint64_t*)A;
+    *(uint64_t*)(&b[0]) = *(uint64_t*)B;
+    *(half2*)(&res[0]) = __hadd2(*(half2*)(&a[0]), *(half2*)(&b[0]));
+    *(half2*)(&res[2]) = __hadd2(*(half2*)(&a[2]), *(half2*)(&b[2]));   
+    return *(uint64_t*)res; 
+}
+
 __device__ void dequantToShmemB_r(half* shmem, uint8_t* B_q, uint8_t* B_q_r, half* codebook, half* codebook_shmem, half* codebook_r, half* codebook_r_shmem, int k, int n, int ko) {
     // 32x32 uint8, every thread load 8 uint8 indices
     uint32_t local_id = (threadIdx.x % 4) * 4;
@@ -400,6 +413,24 @@ __device__ void dequantToShmemB_r(half* shmem, uint8_t* B_q, uint8_t* B_q_r, hal
     }
 }
 
+__device__ void dequantToRegB_r(uint32_t* frag, uint8_t* B_q, uint8_t* B_q_r, half* codebook, half* codebook_r, int k, int n, int ko, int ki) {
+    uint32_t warp_id_x = (threadIdx.x / WARP_SIZE) / 2;
+    uint32_t warp_id_y = (threadIdx.x / WARP_SIZE) % 2;
+    uint32_t lane_id = threadIdx.x % WARP_SIZE;
+    uint32_t local_id = warp_id_y * 8;
+    uint8_t ids[16];
+    *(uint64_t*)(&ids[0]) = *(uint64_t*)(&B_q[(ko * BLOCK_TILE_K + ki * WARP_TILE_K) * n + blockIdx.y * (BLOCK_TILE_N / RATIO) + warp_id_y * (WARP_TILE_N / RATIO) + ((lane_id % 2) * 8 + (lane_id / 4)) * n + (lane_id / 2) * 8]);
+    *(uint64_t*)(&ids[8]) = *(uint64_t*)(&B_q_r[(ko * BLOCK_TILE_K + ki * WARP_TILE_K) * n + blockIdx.y * (BLOCK_TILE_N / RATIO) + warp_id_y * (WARP_TILE_N / RATIO) + ((lane_id % 2) * 8 + (lane_id / 4)) * n + (lane_id / 2) * 8]);
+    
+    #pragma unroll
+    for (int i = 0; i < 8; i++) {
+        *(uint64_t*)(&frag[i * 2]) = element_wise_add_half4_(
+            &codebook[(local_id + i) * 256 * 4 + ((uint32_t) ids[i]) * 4],
+            &codebook_r[(local_id + i) * 256 * 4 + ((uint32_t) ids[i + 8]) * 4]
+        );
+    }
+}
+
 __global__ void e2e_gemm_rq_kernel(
     half* _input,
     uint8_t* _w,
@@ -412,7 +443,9 @@ __global__ void e2e_gemm_rq_kernel(
 {
     extern __shared__ uint8_t shmem[];
     half *A1 = reinterpret_cast<half*>(shmem);
-    half *B1 = reinterpret_cast<half*>(shmem + BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
+    half *A2 = reinterpret_cast<half*>(shmem + 1 * BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
+    half *B1 = reinterpret_cast<half*>(shmem + 2 * BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
+    half *B2 = reinterpret_cast<half*>(shmem + 2 * BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half) + 1 * BLOCK_TILE_K * BLOCK_TILE_N * sizeof(half));
     half *codebook_buf = reinterpret_cast<half*>(shmem + (BLOCK_TILE_M * BLOCK_TILE_K + BLOCK_TILE_K * BLOCK_TILE_N) * sizeof(half));
 
     uint32_t A_frags[16];
@@ -429,7 +462,7 @@ __global__ void e2e_gemm_rq_kernel(
         for (int ki = 0; ki < BLOCK_TILE_K / WARP_TILE_K; ki++) {
             loadFragA_mma(A_frags, A1, ki);
             loadFragB_mma(B_frags, B1, ki);
-            // dequantToRegB(B_frags, _w, _codebook, codebook_buf, K, N, ko, ki);
+            // dequantToRegB_r(B_frags, _w, _w_r, codebook_buf, &codebook_buf[16 * ENTRY * RATIO / HOT], K, N, ko, ki);
             for (int mm = 0; mm < WARP_TILE_M / WMMA_TILE_M; mm++) {
                 for (int nn = 0; nn < WARP_TILE_N / WMMA_TILE_N; nn++) {
                     compute_mma(&A_frags[mm * 4], &B_frags[nn * 4], &C_frags[(mm * 4 + nn) * 4]);
