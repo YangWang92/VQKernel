@@ -31,7 +31,7 @@ setup(
                 # "gptvq_gemm/gptvq_gemm.cu",
                 # "gptvq_gemv/gptvq_gemv.cu",
                 "e2e-gemm/e2e-gemm.cu",
-                # "e2e-gemm/e2e-gemv.cu",
+                "e2e-gemv/e2e-gemv.cu",
                 # "e2e-attention/e2e-attention.cu",
             ],
             extra_compile_args=extra_compile_args,

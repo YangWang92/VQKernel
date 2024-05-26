@@ -1,7 +1,7 @@
 import torch
 import faiss
 import numpy as np
-from VQKernel import e2e_gemm_rq
+from VQKernel import e2e_gemv_rq
 from faiss.contrib.inspect_tools import get_pq_centroids
 from tqdm import tqdm
 SEQ_LEN = 2048
@@ -13,7 +13,7 @@ HEAD_DIM = 128
 HEAD_NUM = 32
 KV_HEAD_NUM = 32
 
-# torch.set_printoptions(profile="full")
+torch.set_printoptions(profile="full")
 
 # AQLM Original:
 # 8 FP16 -> 1 UINT16, 65536 entries
@@ -114,12 +114,17 @@ w_residual_dequantized = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_wei
 codebook_residual = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook_residual.pt", map_location="cuda:0")
 
 
-hidden = torch.rand((SEQ_LEN, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
+# hidden = torch.rand((SEQ_LEN, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
+hidden1d = torch.rand((1, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
 
-ori = torch.matmul(hidden, w_original)
-ref = torch.matmul(hidden, w_dequantized + w_residual_dequantized)
-res = e2e_gemm_rq(hidden, w_quantized_reordered, codebook_reordered, w_residual_quantized, codebook_residual)
+ori = torch.matmul(hidden1d, w_original)
+ref = torch.matmul(hidden1d, w_dequantized + w_residual_dequantized)
+res = e2e_gemv_rq(hidden1d, w_quantized_reordered, codebook_reordered, w_residual_quantized, codebook_residual)
+print((w_dequantized + w_residual_dequantized)[0:64, 0:4])
 
+# print(ref)
+
+# print(res)
 # ref = torch.matmul(hidden, w_dequantized)
 # res = e2e_gemm(hidden, w_quantized_reordered, codebook_reordered)
 

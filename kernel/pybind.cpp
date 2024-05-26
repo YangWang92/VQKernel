@@ -8,7 +8,7 @@
 // #include "gptvq_gemm/gptvq_gemm.h"
 // #include "gptvq_gemv/gptvq_gemv.h"
 #include "e2e-gemm/e2e-gemm.h"
-// #include "e2e-gemv/e2e-gemv.h"
+#include "e2e-gemv/e2e-gemv.h"
 // #include "e2e-attention/e2e-attention.h"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
@@ -22,5 +22,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("e2e_gemm", &e2e_gemm, "");
     m.def("e2e_gemm_rq", &e2e_gemm_rq, "");
     // m.def("e2e_gemv", &e2e_gemv, "");
+    m.def("e2e_gemv_rq", &e2e_gemv_rq, "");
     // m.def("e2e_attention", &e2e_attention, "");
 }

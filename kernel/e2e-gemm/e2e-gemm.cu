@@ -371,16 +371,16 @@ __device__ void load_codebook_r(
 
 }
 
-__device__ void element_wise_add_half4(
+__device__ __forceinline__ void element_wise_add_half4(
     half *A,
     half *B
 )
 {
-    half b[4];
+    // half b[4];
     // *(uint64_t*)(&a[0]) = *A;
-    *(uint64_t*)(&b[0]) = *(uint64_t*)B;
-    *(half2*)(&A[0]) = __hadd2(*(half2*)(&A[0]), *(half2*)(&b[0]));
-    *(half2*)(&A[2]) = __hadd2(*(half2*)(&A[2]), *(half2*)(&b[2]));
+    // *(uint64_t*)(&b[0]) = *(uint64_t*)B;
+    *(half2*)(&A[0]) = __hadd2(*(half2*)(&A[0]), *(half2*)(&B[0]));
+    *(half2*)(&A[2]) = __hadd2(*(half2*)(&A[2]), *(half2*)(&B[2]));
     // *A = *(uint64_t*)(&a[0]);
 }
 
@@ -405,12 +405,49 @@ __device__ void dequantToShmemB_r(half* shmem, uint8_t* B_q, uint8_t* B_q_r, hal
     *(uint64_t*)(&indices[0]) = *(uint64_t*)(&B_q[(ko * BLOCK_TILE_K) * n + blockIdx.y * (BLOCK_TILE_N / RATIO) + (threadIdx.x / 4) * n + (threadIdx.x % 4) * 8]);
     *(uint64_t*)(&indices[8]) = *(uint64_t*)(&B_q_r[(ko * BLOCK_TILE_K) * n + blockIdx.y * (BLOCK_TILE_N / RATIO) + (threadIdx.x / 4) * n + (threadIdx.x % 4) * 8]);
     half tmp[4];
-    #pragma unroll
-    for (int i = 0; i < 8; i++) {
-        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + i / 2) * 256 * 4 + ((uint32_t) indices[i]) * 4]);
-        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + i / 2) * 256 * 4 + ((uint32_t) indices[i + 8]) * 4]));
-        *(uint64_t*)(&shmem[(threadIdx.x / 64) * (8 * 16 * 16) + (threadIdx.x % 4) * (2 * 16 * 16) + (i / 4) * (16 * 16) + ((threadIdx.x % 64) / 4) * 16 + (i % 4) * 4]) = *(uint64_t*)(&tmp[0]);
-    }
+    // #pragma unroll
+    // for (int i = 0; i < 8; i++) {
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[local_id * 1024 + ((uint32_t) indices[0]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[local_id * 1024 + ((uint32_t) indices[8]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 2048]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[local_id * 1024 + ((uint32_t) indices[1]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[local_id * 1024 + ((uint32_t) indices[9]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 4]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 2052]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + 1) * 1024 + ((uint32_t) indices[2]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + 1) * 1024 + ((uint32_t) indices[10]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 8]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 2056]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + 1) * 1024 + ((uint32_t) indices[3]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + 1) * 1024 + ((uint32_t) indices[11]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 12]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[(threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16 + 2060]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + 2) * 1024 + ((uint32_t) indices[4]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + 2) * 1024 + ((uint32_t) indices[12]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[256 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[2304 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + 2) * 1024 + ((uint32_t) indices[5]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + 2) * 1024 + ((uint32_t) indices[13]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[260 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[2308 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + 3) * 1024 + ((uint32_t) indices[6]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + 3) * 1024 + ((uint32_t) indices[14]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[264 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[2312 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+
+        *(uint64_t*)(&tmp[0]) = *(uint64_t*)(&codebook_shmem[(local_id + 3) * 1024 + ((uint32_t) indices[7]) * 4]);
+        element_wise_add_half4(tmp, (half*)(&codebook_r_shmem[(local_id + 3) * 1024 + ((uint32_t) indices[15]) * 4]));
+        if (threadIdx.x < 64) *(uint64_t*)(&shmem[268 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+        else                  *(uint64_t*)(&shmem[2316 + (threadIdx.x % 4) * 512 + ((threadIdx.x % 64) / 4) * 16]) = *(uint64_t*)(&tmp[0]);
+    // }
+
 }
 
 __device__ void dequantToRegB_r(uint32_t* frag, uint8_t* B_q, uint8_t* B_q_r, half* codebook, half* codebook_r, int k, int n, int ko, int ki) {
@@ -446,7 +483,7 @@ __global__ void e2e_gemm_rq_kernel(
     half *A2 = reinterpret_cast<half*>(shmem + 1 * BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
     half *B1 = reinterpret_cast<half*>(shmem + 2 * BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half));
     half *B2 = reinterpret_cast<half*>(shmem + 2 * BLOCK_TILE_M * BLOCK_TILE_K * sizeof(half) + 1 * BLOCK_TILE_K * BLOCK_TILE_N * sizeof(half));
-    half *codebook_buf = reinterpret_cast<half*>(shmem + (BLOCK_TILE_M * BLOCK_TILE_K + BLOCK_TILE_K * BLOCK_TILE_N) * sizeof(half));
+    half *codebook_buf = reinterpret_cast<half*>(shmem + 2 * (BLOCK_TILE_M * BLOCK_TILE_K + BLOCK_TILE_K * BLOCK_TILE_N) * sizeof(half));
 
     uint32_t A_frags[16];
     uint32_t B_frags[16];
@@ -454,15 +491,51 @@ __global__ void e2e_gemm_rq_kernel(
 
     load_codebook_r(codebook_buf, _codebook, _codebook_r);
 
-    for (int ko = 0; ko < K / BLOCK_TILE_K; ko++) {
-        loadShmemA(A1, _input, M, K, ko);
-        dequantToShmemB_r(B1, _w, _w_r, _codebook, codebook_buf, _codebook_r, &codebook_buf[16 * ENTRY * RATIO / HOT], K, N, ko);
-        asm volatile("cp.async.wait_all;\n"::);
+    loadShmemA(A1, _input, M, K, 0);
+    dequantToShmemB_r(B1, _w, _w_r, _codebook, codebook_buf, _codebook_r, &codebook_buf[16 * ENTRY * RATIO / HOT], K, N, 0);
+    asm volatile("cp.async.commit_group;\n" ::);
+
+    for (int ko = 0; ko < K / BLOCK_TILE_K - 1; ko+=2) {
+        asm volatile("cp.async.wait_group %0;\n" ::"n"(0));
         __syncthreads();
+        if (ko + 1 < K / BLOCK_TILE_K) {
+            loadShmemA(A2, _input, M, K, ko + 1);
+            dequantToShmemB_r(B2, _w, _w_r, _codebook, codebook_buf, _codebook_r, &codebook_buf[16 * ENTRY * RATIO / HOT], K, N, ko + 1);
+            asm volatile("cp.async.commit_group;\n" ::);
+        }
         for (int ki = 0; ki < BLOCK_TILE_K / WARP_TILE_K; ki++) {
             loadFragA_mma(A_frags, A1, ki);
             loadFragB_mma(B_frags, B1, ki);
-            // dequantToRegB_r(B_frags, _w, _w_r, codebook_buf, &codebook_buf[16 * ENTRY * RATIO / HOT], K, N, ko, ki);
+            for (int mm = 0; mm < WARP_TILE_M / WMMA_TILE_M; mm++) {
+                for (int nn = 0; nn < WARP_TILE_N / WMMA_TILE_N; nn++) {
+                    compute_mma(&A_frags[mm * 4], &B_frags[nn * 4], &C_frags[(mm * 4 + nn) * 4]);
+                }
+            }
+        }
+
+        asm volatile("cp.async.wait_group %0;\n" ::"n"(0));
+        __syncthreads();
+        if (ko + 2 < K / BLOCK_TILE_K) {
+            loadShmemA(A1, _input, M, K, ko + 2);
+            dequantToShmemB_r(B1, _w, _w_r, _codebook, codebook_buf, _codebook_r, &codebook_buf[16 * ENTRY * RATIO / HOT], K, N, ko + 2);
+            asm volatile("cp.async.commit_group;\n" ::);
+        }     
+        for (int ki = 0; ki < BLOCK_TILE_K / WARP_TILE_K; ki++) {
+            loadFragA_mma(A_frags, A2, ki);
+            loadFragB_mma(B_frags, B2, ki);
+            for (int mm = 0; mm < WARP_TILE_M / WMMA_TILE_M; mm++) {
+                for (int nn = 0; nn < WARP_TILE_N / WMMA_TILE_N; nn++) {
+                    compute_mma(&A_frags[mm * 4], &B_frags[nn * 4], &C_frags[(mm * 4 + nn) * 4]);
+                }
+            }
+        }
+    }
+    {
+        asm volatile("cp.async.wait_group %0;\n" ::"n"(0));
+        __syncthreads();
+        for (int ki = 0; ki < BLOCK_TILE_K / WARP_TILE_K; ki++) {
+            loadFragA_mma(A_frags, A2, ki);
+            loadFragB_mma(B_frags, B2, ki);
             for (int mm = 0; mm < WARP_TILE_M / WMMA_TILE_M; mm++) {
                 for (int nn = 0; nn < WARP_TILE_N / WMMA_TILE_N; nn++) {
                     compute_mma(&A_frags[mm * 4], &B_frags[nn * 4], &C_frags[(mm * 4 + nn) * 4]);
