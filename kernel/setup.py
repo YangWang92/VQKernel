@@ -24,6 +24,7 @@ setup(
             sources=[
                 "pybind.cpp",
                 "vq_attention/vq_attention_decoding.cu",
+                "vq_attention/vq_attention_decoding_c4d8.cu",
                 "vq_gemv/vq_gemv.cu",
                 "vq_gemm/vq_gemm.cu",
                 # "quip_gemm/quip_gemm.cu",
