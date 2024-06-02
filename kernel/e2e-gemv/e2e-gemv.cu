@@ -12,7 +12,7 @@
 #define DIM_PER_CODEBOOK 8
 #define DIM_BLOCK 16 // 4 space as one block
 #define ROW_BLOCK 1024
-#define PROFILING 0
+#define PROFILING 1
 #define ENTRY 256
 #define RATIO 4
 #define RESIDUAL 2
@@ -485,20 +485,70 @@ __device__ void __forceinline__ dequant_to_shmem(
     half* dequanted_weight_buf,
     const uint8_t* weight,
     const half* codebook,
-    int k
+    int k,
+    half2* x,
+    half2* sum
 )
 {
     uint32_t tid = threadIdx.y * blockDim.x + threadIdx.x;
     uint32_t id = (uint32_t) weight[(k * 64 + tid / 2) * 1024 + blockIdx.y * 2 + tid % 2];
-    *(uint64_t*)(&dequanted_weight_buf[threadIdx.y * 128 + threadIdx.x * 4]) = *(uint64_t*)(&codebook[blockIdx.y * 256 * 4 + id * 4]);
-        __syncthreads();
-        if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && k == 0) {
-            for (int i = 0; i < 64; i++) {
-                for (int j = 0; j < 8; j++) {
-                    printf("% 6.3f%c", __half2float(dequanted_weight_buf[i * 8 + j]), (j == 7) ? '\n' : ' ');
-                }
-            }
-        }
+    // *(uint64_t*)(&dequanted_weight_buf[threadIdx.y * 128 + threadIdx.x * 4]) = *(uint64_t*)(&codebook[blockIdx.y * 256 * 4 + id * 4]);
+    *(uint64_t*)(&dequanted_weight_buf[(tid / 2) * 12 + (tid % 2) * 4]) = *(uint64_t*)(&codebook[id * 4]);
+    // *(uint64_t*)(&dequanted_weight_buf[(tid / 2) * 12 + (tid % 2) * 4]) = 0x7777666655554444;
+    
+    __syncthreads();
+        // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && k == 0) {
+        //     for (int i = 0; i < 64; i++) {
+        //         for (int j = 0; j < 8; j++) {
+        //             printf("% 6.3f%c", __half2float(dequanted_weight_buf[i * 8 + j]), (j == 7) ? '\n' : ' ');
+        //         }
+        //     }
+        //     printf("\n");
+        // }
+        
+    sum[0] = __hadd2(sum[0], __hadd2(
+        __hmul2({x[0].x, x[0].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[0].y, x[0].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[1] = __hadd2(sum[1], __hadd2(
+        __hmul2({x[1].x, x[1].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[1].y, x[1].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[2] = __hadd2(sum[2], __hadd2(
+        __hmul2({x[2].x, x[2].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[2].y, x[2].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[3] = __hadd2(sum[3], __hadd2(
+        __hmul2({x[3].x, x[3].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[3].y, x[3].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[4] = __hadd2(sum[4], __hadd2(
+        __hmul2({x[4].x, x[4].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[4].y, x[4].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[5] = __hadd2(sum[5], __hadd2(
+        __hmul2({x[5].x, x[5].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[5].y, x[5].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[6] = __hadd2(sum[6], __hadd2(
+        __hmul2({x[6].x, x[6].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[6].y, x[6].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+    sum[7] = __hadd2(sum[7], __hadd2(
+        __hmul2({x[7].x, x[7].x}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 0) * 12 + threadIdx.y * 2])),
+        __hmul2({x[7].y, x[7].y}, *(half2*)(&dequanted_weight_buf[(threadIdx.x * 2 + 1) * 12 + threadIdx.y * 2]))
+    ));
+        // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && k == 0) {
+        //     for (int i = 0; i < 64; i++) {
+        //         for (int j = 0; j < 8; j++) {
+        //             printf("% 6.3f%c", __half2float(dequanted_weight_buf[i * 8 + j]), (j == 7) ? '\n' : ' ');
+        //         }
+        //     }
+        // }
+        // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.y == 0 && k == 0) {
+        //     printf("% 3d : % 7.5f*% 7.5f+% 7.5f*% 7.5f=% 7.5f+% 7.5f=% 7.5f (Ref: % 7.5f)\n", threadIdx.x, __half2float(x.x), __half2float(dequanted_weight_buf[(threadIdx.x * 2 + 0) * 8 + threadIdx.y * 2]), __half2float(x.y), __half2float(dequanted_weight_buf[(threadIdx.x * 2 + 1) * 8 + threadIdx.y * 2]), __half2float(__hmul(x.x, dequanted_weight_buf[(threadIdx.x * 2 + 0) * 8 + threadIdx.y * 2])), __half2float(__hmul(x.y, dequanted_weight_buf[(threadIdx.x * 2 + 1) * 8 + threadIdx.y * 2])), __half2float(__hadd(__hmul(x.x, dequanted_weight_buf[(threadIdx.x * 2 + 0) * 8 + threadIdx.y * 2]), __hmul(x.y, dequanted_weight_buf[(threadIdx.x * 2 + 1) * 8 + threadIdx.y * 2]))), __half2float(sum->x));
+            // printf("%d : % 7.5f\n", threadIdx.x, __half2float(sum->x));
+        // }
 }
 
 __global__ void e2e_gemv_rq_kernel(
@@ -513,31 +563,65 @@ __global__ void e2e_gemv_rq_kernel(
 {
     uint32_t batch_idx = blockIdx.x;
     extern __shared__ uint8_t shmem[];
+    uint32_t tid = threadIdx.y * blockDim.x + threadIdx.x;
     half* dequant_w0 = reinterpret_cast<half*>(shmem);
+    half* codebook_buf = reinterpret_cast<half*>(shmem + 1536);
     const uint8_t* w_ptr = blockIdx.z == 0 ? _w : _w_r;
     const half* codebook_ptr = blockIdx.z == 0 ? _codebook : _codebook_r;
 
-    half2 psum{__float2half(0.0), __float2half(0.0)};
-    half2 input;
+    *(uint4*)(&codebook_buf[tid * 8]) = *(uint4*)(&codebook_ptr[blockIdx.y * 256 * 4 + tid * 8]);
+    __syncthreads();
+
+    half2 psum[8];
+    #pragma unroll 
+    for (int i = 0; i < 8; i++) psum[i] = {__float2half(0.0), __float2half(0.0)};
+    half2 input[8];
     for (int k = 0; k < 4096 / 64; k++) {
-        dequant_to_shmem(dequant_w0, w_ptr, codebook_ptr, k);
-        __syncthreads();
-        if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && k == 0) {
-            printf("\n\n");
-            for (int i = 0; i < 64; i++) {
-                for (int j = 0; j < 8; j++) {
-                    printf("% 6.3f%c", __half2float(dequant_w0[i * 8 + j]), (j == 7) ? '\n' : ' ');
-                }
-            }
-        }
+        input[0] = *(half2*)(&_input[0 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[1] = *(half2*)(&_input[1 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[2] = *(half2*)(&_input[2 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[3] = *(half2*)(&_input[3 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[4] = *(half2*)(&_input[4 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[5] = *(half2*)(&_input[5 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[6] = *(half2*)(&_input[6 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        input[7] = *(half2*)(&_input[7 * 4096 + (k * 64 + threadIdx.x * 2)]);
+        dequant_to_shmem(dequant_w0, w_ptr, codebook_buf, k, input, psum);
+        // __syncthreads();
+        // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0 && k == 0) {
+        //     printf("\n\n");
+        //     for (int i = 0; i < 64; i++) {
+        //         for (int j = 0; j < 8; j++) {
+        //             printf("% 6.3f%c", __half2float(dequant_w0[i * 8 + j]), (j == 7) ? '\n' : ' ');
+        //         }
+        //     }
+        // }
         
-        accumulate(&psum, input, dequant_w0);
+        // accumulate(&psum, input, dequant_w0);
     }
     #pragma unroll
     for (int mask = 16; mask > 0; mask>>=1) {
-        psum = __hadd2(psum, __shfl_xor_sync(0xffffffff, psum, mask));
+        psum[0] = __hadd2(psum[0], __shfl_xor_sync(0xffffffff, psum[0], mask));
+        psum[1] = __hadd2(psum[1], __shfl_xor_sync(0xffffffff, psum[1], mask));
+        psum[2] = __hadd2(psum[2], __shfl_xor_sync(0xffffffff, psum[2], mask));
+        psum[3] = __hadd2(psum[3], __shfl_xor_sync(0xffffffff, psum[3], mask));
+        psum[4] = __hadd2(psum[4], __shfl_xor_sync(0xffffffff, psum[4], mask));
+        psum[5] = __hadd2(psum[5], __shfl_xor_sync(0xffffffff, psum[5], mask));
+        psum[6] = __hadd2(psum[6], __shfl_xor_sync(0xffffffff, psum[6], mask));
+        psum[7] = __hadd2(psum[7], __shfl_xor_sync(0xffffffff, psum[7], mask));
     }
-    atomicAdd((half2*)&_o[batch_idx * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum);
+    // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && threadIdx.x == 0 && threadIdx.y == 0) {
+    //     printf("%7.5f\n", __half2float(psum.x));
+    // }
+    if (threadIdx.x == 0) {
+        atomicAdd((half2*)&_o[0 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[0]);
+        atomicAdd((half2*)&_o[1 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[1]);
+        atomicAdd((half2*)&_o[2 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[2]);
+        atomicAdd((half2*)&_o[3 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[3]);
+        atomicAdd((half2*)&_o[4 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[4]);
+        atomicAdd((half2*)&_o[5 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[5]);
+        atomicAdd((half2*)&_o[6 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[6]);
+        atomicAdd((half2*)&_o[7 * 4096 + blockIdx.y * 8 + threadIdx.y * 2], psum[7]);
+    }
 }
 
 torch::Tensor e2e_gemv_rq(
@@ -555,7 +639,7 @@ torch::Tensor e2e_gemv_rq(
     cudaEventCreate(&st, NULL);
     cudaEventCreate(&ed, NULL);
 #endif
-    cudaFuncSetAttribute(e2e_gemv_rq_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 2048);
+    cudaFuncSetAttribute(e2e_gemv_rq_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 4096);
 
     auto BATCH = input.size(0);
     auto HIDDEN = input.size(1);
@@ -582,12 +666,12 @@ torch::Tensor e2e_gemv_rq(
     // cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &stream_attr);
     
     // Every block do 4096x8
-    dim3 grid(BATCH, HIDDEN / 8, 2);
+    dim3 grid(1, HIDDEN / 8, 2);
     // Every thread fo 128 row, 2 subspaces (32-bit)
     dim3 block(32, 4);
 #if PROFILING == 1
     for (int i = 0; i < wmup; i++) {
-        e2e_gemv_rq_kernel<<<grid, block, 2048>>>(
+        e2e_gemv_rq_kernel<<<grid, block, 4096>>>(
             input_ptr, 
             w_ptr,
             codebook_ptr, 
@@ -600,7 +684,7 @@ torch::Tensor e2e_gemv_rq(
     cudaEventRecord(st);
     for (int i = 0; i < iter; i++) {
 #endif
-        e2e_gemv_rq_kernel<<<grid, block, 2048>>>(
+        e2e_gemv_rq_kernel<<<grid, block, 4096>>>(
             input_ptr, 
             w_ptr,
             codebook_ptr, 

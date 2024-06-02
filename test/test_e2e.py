@@ -114,28 +114,26 @@ w_residual_dequantized = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_wei
 codebook_residual = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook_residual.pt", map_location="cuda:0")
 
 
-# hidden = torch.rand((SEQ_LEN, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
-hidden1d = torch.rand((1, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
+hidden = torch.rand((4096, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
+# hidden1d = torch.rand((8, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
 
-ori = torch.matmul(hidden1d, w_original)
-ref = torch.matmul(hidden1d, w_dequantized + w_residual_dequantized)
-res = e2e_gemv_rq(hidden1d, w_quantized, codebook, w_residual_quantized, codebook_residual)
+ori = torch.matmul(hidden, w_original)
+ref = torch.matmul(hidden, w_dequantized + w_residual_dequantized)
+res = e2e_gemm_rq(hidden, w_quantized, codebook, w_residual_quantized, codebook_residual)
 
-print(w_quantized[0:64, 0:2])
-print(codebook[238])
-print(codebook[16])
-print(codebook[253])
-print(codebook[60])
-print(w_dequantized[0:64,0:8])
+# print(w_quantized[0:64, 0:2])
 
+# print(w_dequantized[64:128,0:8])
+# print(hidden1d[0][64:128])
+# print(torch.matmul(hidden1d[0][:], w_dequantized[:, 0]))
 # print(ref)
 
 # print(res)
 # ref = torch.matmul(hidden, w_dequantized)
 # res = e2e_gemm(hidden, w_quantized_reordered, codebook_reordered)
-print("Origin VS Reference Error:%5.2f" % (np.median(np.abs(((ori - ref) / ori).to("cpu").numpy())) * 100), "%")
-print("Reference VS Custom Error:%5.2f" % (np.median(np.abs(((ref - res) / ref).to("cpu").numpy())) * 100), "%")
-print("Origin VS    Custom Error:%5.2f" % (np.median(np.abs(((ori - res) / ori).to("cpu").numpy())) * 100), "%")
+# print("Origin VS Reference Error:%5.2f" % (np.median(np.abs(((ori - ref) / ori).to("cpu").numpy())) * 100), "%")
+# print("Reference VS Custom Error:%5.2f" % (np.median(np.abs(((ref - res) / ref).to("cpu").numpy())) * 100), "%")
+# print("Origin VS    Custom Error:%5.2f" % (np.median(np.abs(((ori - res) / ori).to("cpu").numpy())) * 100), "%")
 
 
 

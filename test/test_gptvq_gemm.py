@@ -3,7 +3,7 @@ import faiss
 import numpy as np
 from VQKernel import gptvq_gemm
 
-SEQ_LEN = 128
+SEQ_LEN = 4096
 HIDDEN_DIM = 4096
 COMPRESSION_RATIO = 2
 ENTRY = 256

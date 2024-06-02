@@ -9,7 +9,7 @@
 #include "mma.h"
 #include <random>
 
-#define PROFILING 1
+#define PROFILING 0
 #define WARP_NUM 4
 #define WARP_SIZE 32
 #define BLOCK_SIZE (WARP_NUM * WARP_SIZE)
@@ -20,7 +20,7 @@
 #define HOT 1
 #define BUFFERED_ENTRY (ENTRY / HOT)
 #define NUM_CODEBOOK_LOAD_AT_ONCE 16 // MAX: 64
-#define NUM_CODEBOOK_LOAD_AT_ONCE_OUTTER 4 // MAX: 32
+#define NUM_CODEBOOK_LOAD_AT_ONCE_OUTTER 8 // MAX: NUM_CODEBOOK_LOAD_AT_ONCE / K_BLOCK
 
 #define SPLIT_K 2048
 
@@ -40,7 +40,7 @@
 #define MMA_TILE_N 8
 #define MMA_TILE_K 16
 
-#define MAX_SHARED_MEMORY_USAGE (8192 + NUM_CODEBOOK_LOAD_AT_ONCE * (ENTRY * RATIO * 2) / HOT)
+#define MAX_SHARED_MEMORY_USAGE (16384 + NUM_CODEBOOK_LOAD_AT_ONCE * (ENTRY * RATIO * 2) / HOT)
 #define MAX_SHARED_MEMORY_USAGE_OUTTER (16384 + NUM_CODEBOOK_LOAD_AT_ONCE_OUTTER * (ENTRY * RATIO * 2) / HOT)
 
 __device__ __forceinline__ uint32_t shmem_uint32_t(const void* shmem_ptr) {
@@ -436,46 +436,46 @@ torch::Tensor gptvq_gemm(
 
 #if PROFILING == 1
     for (int i = 0; i < wmup; i++) {
-        // gptvq_gemm_kernel<<<grid, block, MAX_SHARED_MEMORY_USAGE>>>(
-        //     input_ptr,
-        //     d_dummy_w,
-        //     codebook_ptr,
-        //     o_ptr,
-        //     seq_len,
-        //     hidden_dim,
-        //     hidden_dim
-        // );
-        gptvq_gemm_kernel_outter_product<<<grid_outter, block, MAX_SHARED_MEMORY_USAGE_OUTTER>>>(
+        gptvq_gemm_kernel<<<grid, block, MAX_SHARED_MEMORY_USAGE>>>(
             input_ptr,
             d_dummy_w,
             codebook_ptr,
-            o_ptr_outter,
+            o_ptr,
             seq_len,
             hidden_dim,
-            SPLIT_K
+            hidden_dim
         );
+        // gptvq_gemm_kernel_outter_product<<<grid_outter, block, MAX_SHARED_MEMORY_USAGE_OUTTER>>>(
+        //     input_ptr,
+        //     d_dummy_w,
+        //     codebook_ptr,
+        //     o_ptr_outter,
+        //     seq_len,
+        //     hidden_dim,
+        //     SPLIT_K
+        // );
     }
     cudaEventRecord(st);
     for (int i = 0; i < iter; i++) {
 #endif
-    // gptvq_gemm_kernel<<<grid, block, MAX_SHARED_MEMORY_USAGE>>>(
-    //     input_ptr,
-    //     d_dummy_w,
-    //     codebook_ptr,
-    //     o_ptr,
-    //     seq_len,
-    //     hidden_dim,
-    //     hidden_dim
-    // );
-        gptvq_gemm_kernel_outter_product<<<grid_outter, block, MAX_SHARED_MEMORY_USAGE_OUTTER>>>(
-            input_ptr,
-            d_dummy_w,
-            codebook_ptr,
-            o_ptr_outter,
-            seq_len,
-            hidden_dim,
-            SPLIT_K
-        );
+    gptvq_gemm_kernel<<<grid, block, MAX_SHARED_MEMORY_USAGE>>>(
+        input_ptr,
+        d_dummy_w,
+        codebook_ptr,
+        o_ptr,
+        seq_len,
+        hidden_dim,
+        hidden_dim
+    );
+        // gptvq_gemm_kernel_outter_product<<<grid_outter, block, MAX_SHARED_MEMORY_USAGE_OUTTER>>>(
+        //     input_ptr,
+        //     d_dummy_w,
+        //     codebook_ptr,
+        //     o_ptr_outter,
+        //     seq_len,
+        //     hidden_dim,
+        //     SPLIT_K
+        // );
 #if PROFILING == 1
     }
     cudaEventRecord(ed);
