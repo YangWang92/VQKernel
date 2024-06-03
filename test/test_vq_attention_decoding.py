@@ -3,8 +3,8 @@ import faiss
 from VQKernel import vq_attention_decoding
 import numpy as np
 
-BATCH = 16
-SEQ_LEN = 2048
+BATCH = 8
+SEQ_LEN = 4096
 HIDDEN_DIM = 4096
 HEAD_NUM = 32
 HEAD_DIM = 128
