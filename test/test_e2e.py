@@ -55,10 +55,10 @@ KV_HEAD_NUM = 32
 # torch.save(w_dequantized, "/home/zhliu/workspace/VQKernel/test/e2e_weight/w_dequantized.pt")
 # print(w_original.shape, codebook.shape, w_quantized.shape, w_dequantized.shape)
 
-w_original = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/w_original.pt", map_location="cuda:0")
-w_quantized = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/w_quantized.pt", map_location="cuda:0")
-w_dequantized = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/w_dequantized.pt", map_location="cuda:0")
-codebook = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook.pt", map_location="cuda:0")
+w_original = torch.load("test/e2e_weight/w_original.pt", map_location="cuda:0")
+w_quantized = torch.load("test/e2e_weight/w_quantized.pt", map_location="cuda:0")
+w_dequantized = torch.load("test/e2e_weight/w_dequantized.pt", map_location="cuda:0")
+codebook = torch.load("test/e2e_weight/codebook.pt", map_location="cuda:0")
 
 # Reorder!
 # w_quantized_reordered = w_quantized.clone()
@@ -79,8 +79,8 @@ codebook = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook.p
 # torch.save(codebook_reordered, "/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook_reordered.pt")
 # torch.save(w_quantized_reordered, "/home/zhliu/workspace/VQKernel/test/e2e_weight/w_quantized_reordered.pt")
 
-codebook_reordered = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook_reordered.pt")
-w_quantized_reordered = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/w_quantized_reordered.pt")
+codebook_reordered = torch.load("test/e2e_weight/codebook_reordered.pt")
+w_quantized_reordered = torch.load("test/e2e_weight/w_quantized_reordered.pt")
 
 # residual = w_original - w_dequantized
 # codebook_residual = None
@@ -109,9 +109,9 @@ w_quantized_reordered = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weig
 # torch.save(w_residual_quantized, "/home/zhliu/workspace/VQKernel/test/e2e_weight/w_residual_quantized.pt")
 # torch.save(w_residual_dequantized, "/home/zhliu/workspace/VQKernel/test/e2e_weight/w_residual_dequantized.pt")
 
-w_residual_quantized = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/w_residual_quantized.pt", map_location="cuda:0")
-w_residual_dequantized = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/w_residual_dequantized.pt", map_location="cuda:0")
-codebook_residual = torch.load("/home/zhliu/workspace/VQKernel/test/e2e_weight/codebook_residual.pt", map_location="cuda:0")
+w_residual_quantized = torch.load("test/e2e_weight/w_residual_quantized.pt", map_location="cuda:0")
+w_residual_dequantized = torch.load("test/e2e_weight/w_residual_dequantized.pt", map_location="cuda:0")
+codebook_residual = torch.load("test/e2e_weight/codebook_residual.pt", map_location="cuda:0")
 
 
 hidden = torch.rand((4096, HEAD_DIM * HEAD_NUM)).type(torch.float16).to("cuda:0") - 0.5
@@ -124,31 +124,31 @@ res = e2e_gemm_rq(hidden, w_quantized, codebook, w_residual_quantized, codebook_
 # print(w_quantized[0:64, 0:2])
 
 # print(w_dequantized[64:128,0:8])
-# print(hidden1d[0][64:128])
-# print(torch.matmul(hidden1d[0][:], w_dequantized[:, 0]))
+# print(hidden[0][64:128])
+# print(torch.matmul(hidden[0][:], w_dequantized[:, 0]))
 # print(ref)
 
 # print(res)
 # ref = torch.matmul(hidden, w_dequantized)
 # res = e2e_gemm(hidden, w_quantized_reordered, codebook_reordered)
-# print("Origin VS Reference Error:%5.2f" % (np.median(np.abs(((ori - ref) / ori).to("cpu").numpy())) * 100), "%")
-# print("Reference VS Custom Error:%5.2f" % (np.median(np.abs(((ref - res) / ref).to("cpu").numpy())) * 100), "%")
-# print("Origin VS    Custom Error:%5.2f" % (np.median(np.abs(((ori - res) / ori).to("cpu").numpy())) * 100), "%")
+print("Origin VS Reference Error:%5.2f" % (np.median(np.abs(((ori - ref) / ori).to("cpu").numpy())) * 100), "%")
+print("Reference VS Custom Error:%5.2f" % (np.median(np.abs(((ref - res) / ref).to("cpu").numpy())) * 100), "%")
+print("Origin VS    Custom Error:%5.2f" % (np.median(np.abs(((ori - res) / ori).to("cpu").numpy())) * 100), "%")
 
 
 
 # Plot cdf
-# tmp = w_quantized_reordered.to("cpu").numpy().flatten()
-# v, c = np.unique(tmp, return_counts=True)
-# l = []
-# for i in range(len(v)):
-#     l.append([v[i], c[i]])
-# l.sort(key=lambda x : x[1])
-# l = l[::-1]
-# cdf = [l[0][1]]
-# for i in range(1, len(l)):
-#     cdf.append(l[i][1] + cdf[i - 1])
+tmp = w_quantized_reordered.to("cpu").numpy().flatten()
+v, c = np.unique(tmp, return_counts=True)
+l = []
+for i in range(len(v)):
+    l.append([v[i], c[i]])
+l.sort(key=lambda x : x[1])
+l = l[::-1]
+cdf = [l[0][1]]
+for i in range(1, len(l)):
+    cdf.append(l[i][1] + cdf[i - 1])
 
-# import matplotlib.pyplot as plt 
-# plt.plot(cdf)
-# plt.savefig("cdf.png")
+import matplotlib.pyplot as plt 
+plt.plot(cdf)
+plt.savefig("cdf.png")

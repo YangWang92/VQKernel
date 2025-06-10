@@ -9,8 +9,8 @@ extra_compile_args = {
     "nvcc": [
         "-O2",
         "-std=c++17",
-        "-arch=compute_80",
-        "-code=sm_80",
+        "-arch=compute_90a",
+        "-code=sm_90a",
         # "-lineinfo",
     ],
 }
@@ -24,8 +24,8 @@ setup(
             sources=[
                 "pybind.cpp",
                 # "vq_attention/vq_attention_decoding.cu",
-                # "vq_gemv/vq_gemv.cu",
-                # "vq_gemm/vq_gemm.cu",
+                "vq_gemv/vq_gemv.cu",
+                "vq_gemm/vq_gemm.cu",
                 # "quip_gemm/quip_gemm.cu",
                 # "aqlm_gemm/aqlm_gemm.cu",
                 # "gptvq_gemm/gptvq_gemm.cu",
